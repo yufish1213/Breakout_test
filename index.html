@@ -3,36 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>打磚塊 - 生存挑戰最終版</title>
+    <title>打磚塊 - 鍵盤加速版</title>
     <style>
         /* --- 基礎設定 --- */
         body { margin: 0; padding: 0; background-color: #000; overflow: hidden; font-family: 'Arial', sans-serif; touch-action: none; user-select: none; -webkit-user-select: none; }
         canvas { display: block; margin: 0 auto; background-color: #111; }
         
         /* --- UI 介面 --- */
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 50;}
         
         /* 頂部資訊列 */
         #top-bar {
             position: absolute; top: 20px; left: 20px; right: 20px;
-            display: flex; justify-content: space-between;
-            pointer-events: none; z-index: 10;
+            display: flex; justify-content: space-between; align-items: center;
+            pointer-events: none; z-index: 60;
         }
+        
+        #top-right-controls { display: flex; gap: 20px; pointer-events: auto; }
+
         #score-board, #level-indicator { 
             color: white; font-size: 24px; font-weight: bold; text-shadow: 0 0 5px #00F; 
         }
         #level-indicator { color: #FFD700; text-shadow: 0 0 10px #FF4500; }
 
+        /* 按鈕樣式 */
+        .control-btn {
+            color: white; font-size: 30px; cursor: pointer; 
+            text-shadow: 0 0 5px #00F; user-select: none;
+            transition: transform 0.1s;
+        }
+        .control-btn:active { transform: scale(0.9); }
+
+        /* 暫停畫面遮罩 */
+        #pause-overlay {
+            display: none; /* 預設隱藏 */
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6); 
+            flex-direction: column; justify-content: center; align-items: center;
+            z-index: 100; pointer-events: auto; backdrop-filter: blur(2px);
+        }
+        #pause-symbol { font-size: 80px; color: #FFF; font-weight: bold; text-shadow: 0 0 10px #FFF; }
+        #pause-text { color: #DDD; font-size: 20px; margin-top: 20px; animation: blink 1.5s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+
         /* 浮動文字特效 */
         .float-text {
             position: absolute; color: red; font-weight: bold; font-size: 20px;
             animation: floatUp 1s ease-out forwards; pointer-events: none;
-            white-space: nowrap;
+            white-space: nowrap; z-index: 40;
         }
         @keyframes floatUp { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-80px) scale(1.5); opacity: 0; } }
 
         /* 狀態提示 */
-        #status-area { position: absolute; top: 60px; left: 20px; display: flex; flex-direction: column; gap: 5px; }
+        #status-area { position: absolute; top: 60px; left: 20px; display: flex; flex-direction: column; gap: 5px; pointer-events: none; z-index: 40; }
         .status-msg { font-size: 18px; font-weight: bold; display: none; text-shadow: 1px 1px 2px black; }
         #buff-msg { color: #55FF55; }
         #debuff-msg { color: #CC55FF; }
@@ -44,7 +67,7 @@
             border-radius: 15px; border: 2px solid #555; 
             min-width: 320px; max-width: 90%;
             box-shadow: 0 0 20px rgba(0, 100, 255, 0.2);
-            touch-action: pan-y; 
+            touch-action: pan-y; z-index: 200;
         }
         #title-text { font-size: 36px; font-weight: 900; margin-bottom: 10px; text-shadow: 2px 2px 4px #000; }
         .win-text { color: #00AAFF; }
@@ -97,13 +120,24 @@
 <body>
 
     <div id="top-bar">
-        <div id="score-board">分數: 0</div>
-        <div id="level-indicator">Level 1</div>
+        <div>
+            <div id="score-board">分數: 0</div>
+            <div id="level-indicator">Level 1</div>
+        </div>
+        <div id="top-right-controls">
+            <div id="mute-btn" class="control-btn">🔊</div>
+            <div id="pause-btn" class="control-btn">⏸</div>
+        </div>
     </div>
 
     <div id="status-area">
         <div id="buff-msg" class="status-msg">擋板變大！</div>
         <div id="debuff-msg" class="status-msg">糟糕！擋板縮小！</div>
+    </div>
+
+    <div id="pause-overlay">
+        <div id="pause-symbol">⏸</div>
+        <div id="pause-text">點擊螢幕繼續</div>
     </div>
     
     <div id="ui-layer">
@@ -124,7 +158,7 @@
                 </div>
             </div>
 
-            <button id="action-btn">開始遊戲</button>
+            <button id="action-btn">開始冒險</button>
         </div>
     </div>
     <canvas id="gameCanvas"></canvas>
@@ -146,16 +180,48 @@
     const playerNameInput = document.getElementById("player-name");
     const submitBtn = document.getElementById("submit-btn");
 
+    const pauseBtn = document.getElementById("pause-btn");
+    const muteBtn = document.getElementById("mute-btn");
+    const pauseOverlay = document.getElementById("pause-overlay");
+    
+    let isPaused = false;
+    let isMuted = false;
+    
+    // 鍵盤控制變數
+    let rightPressed = false;
+    let leftPressed = false;
+    // === 修改處：速度改為 12 ===
+    const keyPaddleSpeed = 12;
+
     // --- 音效系統 ---
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let audioCtx;
-    function initAudio() { if (!audioCtx) { audioCtx = new AudioContext(); } else if (audioCtx.state === 'suspended') { audioCtx.resume(); } }
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+
+    function toggleMute() {
+        isMuted = !isMuted;
+        muteBtn.innerText = isMuted ? "🔇" : "🔊";
+    }
+
     function playSound(type) {
+        if (isMuted) return;
+        if (!audioCtx) initAudio();
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         if (!audioCtx) return;
+
         const osc = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         osc.connect(gainNode); gainNode.connect(audioCtx.destination);
         const now = audioCtx.currentTime;
+        
         if (type === 'hit_paddle') {
             osc.type = 'sine'; osc.frequency.setValueAtTime(400, now); osc.frequency.exponentialRampToValueAtTime(600, now + 0.1);
             gainNode.gain.setValueAtTime(0.3, now); gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
@@ -227,10 +293,30 @@
         e.stopPropagation();
         let name = playerNameInput.value.trim() || "PLAYER";
         saveHighScore(name, score, currentLevel);
-        showTitleScreen(); // 儲存後回到主畫面
+        showTitleScreen(); 
     });
     submitBtn.addEventListener('touchstart', function(e) { e.stopPropagation(); }, { passive: false });
-    actionBtn.addEventListener('touchstart', function(e) { e.stopPropagation(); }, { passive: false });
+    
+    // 按鈕控制
+    function handleActionClick(e) {
+        e.stopPropagation(); 
+        if (!isMuted) initAudio(); 
+        
+        let btnText = actionBtn.innerText;
+        
+        if (btnText === "開始冒險" || btnText === "重新開始") {
+            startLevel();
+        } else if (btnText === "挑戰下一關") {
+            currentLevel++;
+            startLevel();
+        } else if (btnText === "回到主畫面") {
+            showTitleScreen();
+        }
+    }
+
+    actionBtn.onclick = handleActionClick;
+    actionBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleActionClick(e); }, { passive: false });
+
 
     // --- 遊戲變數 ---
     let score = 0;
@@ -299,12 +385,11 @@
             this.x = Math.random() * (canvas.width - 40) + 20;
             this.y = Math.random() * (canvas.height/3) + (canvas.height/3); 
             this.dx = (Math.random() > 0.5 ? 2 : -2) + Math.min(5, (currentLevel * 0.3));
-            this.lastHitTime = 0; // 冷卻時間
+            this.lastHitTime = 0; 
         }
         update() { this.x += this.dx; if (this.x > canvas.width - this.radius || this.x < this.radius) this.dx = -this.dx; }
         draw(ctx) {
             ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
-            // 冷卻中半透明
             ctx.globalAlpha = (Date.now() - this.lastHitTime < 500) ? 0.5 : 1.0;
             ctx.fillStyle = "#880000"; ctx.fill(); ctx.strokeStyle = "#FF0000"; ctx.lineWidth = 3; ctx.stroke();
             ctx.beginPath(); ctx.moveTo(this.x - 8, this.y - 8); ctx.lineTo(this.x + 8, this.y + 8);
@@ -369,23 +454,18 @@
     function resizeCanvas() {
         canvas.width = window.innerWidth; canvas.height = window.innerHeight;
         if(!isGameRunning) { 
-            // 確保在非遊戲狀態下也能正確計算寬度
             let alienTotalWidthTarget = canvas.width * 0.8;
             brickWidth = (alienTotalWidthTarget / cols) - brickPadding;
             currentPaddleWidth = basePaddleWidth; 
             paddleX = (canvas.width - currentPaddleWidth) / 2; 
-            // 如果是在主畫面 (Level 1 且 分數 0)，繪製背景
             if (currentLevel === 1 && score === 0) {
-                // 確保有磚塊可以畫
                 if (bricks.length === 0) initBricks();
                 drawStaticScene(); 
             }
         }
     }
 
-    // 獨立出磚塊生成邏輯
     function initBricks() {
-        // 必須先計算磚塊寬度
         let alienTotalWidthTarget = canvas.width * 0.8;
         brickWidth = (alienTotalWidthTarget / cols) - brickPadding;
         let actualAlienWidth = cols * (brickWidth + brickPadding);
@@ -431,24 +511,19 @@
     }
 
     // --- 遊戲流程 ---
-    
-    // 顯示標題畫面 (重置所有狀態)
     function showTitleScreen() {
         isGameRunning = false;
-        cancelAnimationFrame(animationId); // 停止動畫
+        isPaused = false;
+        cancelAnimationFrame(animationId);
+        score = 0; currentLevel = 1;
+        scoreBoard.innerText = "分數: 0"; levelIndicator.innerText = "Level 1";
         
-        score = 0;
-        currentLevel = 1;
-        scoreBoard.innerText = "分數: 0";
-        levelIndicator.innerText = "Level 1";
-        
-        // 恢復 UI
         messageBox.style.display = "block";
         nameInputArea.style.display = 'none';
         highscoreList.style.display = 'block';
+        pauseOverlay.style.display = "none";
         
-        titleText.innerText = "太空打磚塊";
-        titleText.className = "normal-text";
+        titleText.innerText = "太空打磚塊"; titleText.className = "normal-text";
         subText.innerHTML = `
             <strong style="color:#00AAFF">生存榮耀榜</strong><br>
             1. 磚塊數量隨關卡<span style="color:#00AAFF">由少變多</span><br>
@@ -457,42 +532,37 @@
             <hr style="border:0; border-top:1px solid #555; margin:10px 0;">
             <span style="color:#FFF">白球</span>落地 = 結束<br>
         `;
-        
         actionBtn.style.display = 'inline-block';
-        actionBtn.innerText = "開始遊戲";
-        actionBtn.onclick = startLevel;
+        actionBtn.innerText = "開始冒險";
 
-        // 清空遊戲物件並重繪背景
         balls = []; particles = []; powerUps = []; obstacles = []; ufo = null;
-        resizeCanvas(); 
-        renderLeaderboard();
+        resizeCanvas(); renderLeaderboard();
     }
 
     function startLevel() {
-        initAudio(); playSound('powerup_good');
+        initAudio(); // 確保音效啟動
+        playSound('powerup_good');
         
         scoreBoard.innerText = "分數: " + score;
         levelIndicator.innerText = "Level " + currentLevel;
-        
-        // 重置狀態
         currentPaddleWidth = basePaddleWidth;
         buffMsg.style.display = "none"; debuffMsg.style.display = "none";
         if(powerUpTimer) clearTimeout(powerUpTimer);
         
-        // 重置物件
         balls = []; balls.push(new Ball(canvas.width / 2, canvas.height / 2, true));
         powerUps = []; particles = [];
-        
-        // 生成關卡內容 (重要修復：強制在這裡生成，不依賴 resizeCanvas)
-        initBricks(); // 根據 currentLevel 生成磚塊
         initObstacles(); 
+        initBricks();
         ufo = new UFO(); 
 
         paddleX = (canvas.width - currentPaddleWidth) / 2;
+        resizeCanvas();
         
         isGameRunning = true;
+        isPaused = false;
         messageBox.style.display = "none";
         nameInputArea.style.display = 'none'; 
+        pauseOverlay.style.display = "none";
         
         cancelAnimationFrame(animationId);
         draw();
@@ -511,10 +581,6 @@
         
         actionBtn.style.display = 'inline-block';
         actionBtn.innerText = "挑戰下一關";
-        actionBtn.onclick = function() {
-            currentLevel++;
-            startLevel();
-        };
     }
 
     function handleGameOver() {
@@ -528,20 +594,18 @@
             nameInputArea.style.display = 'block';
             highscoreList.style.display = 'none';
             actionBtn.style.display = 'none';
-            playerNameInput.value = ""; 
-            playerNameInput.focus();
+            playerNameInput.value = ""; playerNameInput.focus();
         } else {
             renderLeaderboard();
             nameInputArea.style.display = 'none';
             highscoreList.style.display = 'block';
             actionBtn.style.display = 'inline-block';
             actionBtn.innerText = "回到主畫面";
-            actionBtn.onclick = showTitleScreen;
         }
     }
 
     function isUIElement(element) {
-        return element.id === 'player-name' || element.id === 'submit-btn' || element.id === 'action-btn';
+        return element.id === 'player-name' || element.id === 'submit-btn' || element.id === 'action-btn' || element.id === 'pause-btn' || element.id === 'mute-btn';
     }
 
     function movePaddle(targetX) {
@@ -550,7 +614,6 @@
         if (paddleX + currentPaddleWidth > canvas.width) paddleX = canvas.width - currentPaddleWidth;
     }
     
-    // 觸控處理
     document.addEventListener("touchmove", (e) => { 
         if (isUIElement(e.target)) return; 
         e.preventDefault(); 
@@ -566,6 +629,40 @@
     
     // 初始化：顯示主畫面
     showTitleScreen();
+
+    // --- 暫停功能 ---
+    function togglePause() {
+        if (!isGameRunning) return;
+        isPaused = !isPaused;
+        if (isPaused) {
+            cancelAnimationFrame(animationId);
+            pauseOverlay.style.display = "flex";
+        } else {
+            pauseOverlay.style.display = "none";
+            draw();
+        }
+    }
+
+    pauseBtn.addEventListener("click", (e) => { e.stopPropagation(); togglePause(); });
+    pauseBtn.addEventListener("touchstart", (e) => { e.stopPropagation(); e.preventDefault(); togglePause(); }, { passive: false });
+    pauseOverlay.addEventListener("click", togglePause);
+    pauseOverlay.addEventListener("touchstart", (e) => { e.preventDefault(); togglePause(); }, { passive: false });
+    
+    // 鍵盤控制監聽
+    document.addEventListener("keydown", (e) => { 
+        if (e.code === "Space") togglePause(); 
+        if(e.key == "Right" || e.key == "ArrowRight") rightPressed = true;
+        if(e.key == "Left" || e.key == "ArrowLeft") leftPressed = true;
+    });
+    
+    document.addEventListener("keyup", (e) => {
+        if(e.key == "Right" || e.key == "ArrowRight") rightPressed = false;
+        if(e.key == "Left" || e.key == "ArrowLeft") leftPressed = false;
+    });
+
+    // 靜音功能
+    muteBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleMute(); });
+    muteBtn.addEventListener("touchstart", (e) => { e.stopPropagation(); e.preventDefault(); toggleMute(); }, { passive: false });
 
     // --- 繪圖與邏輯 ---
     function drawPaddle() {
@@ -618,12 +715,10 @@
             }
 
             for (let obs of obstacles) {
-                // 修正：0.5秒冷卻判定
                 if (Date.now() - obs.lastHitTime < 500) continue;
-
                 let dist = Math.sqrt((ball.x - obs.x)**2 + (ball.y - obs.y)**2);
                 if (dist < ball.radius + obs.radius) {
-                    obs.lastHitTime = Date.now(); // 設定被打到的時間
+                    obs.lastHitTime = Date.now();
                     ball.dx = -ball.dx; ball.dy = -ball.dy; score -= 10;
                     showScoreText("-10", obs.x, obs.y); scoreBoard.innerText = "分數: " + score;
                     playSound('hit_obstacle'); triggerShake(10, 5);
@@ -685,6 +780,14 @@
             }
             if (!p.active) powerUps.splice(i, 1);
         }
+        
+        // 鍵盤移動邏輯
+        if(rightPressed && paddleX < canvas.width - currentPaddleWidth) {
+            paddleX += keyPaddleSpeed;
+        } else if(leftPressed && paddleX > 0) {
+            paddleX -= keyPaddleSpeed;
+        }
+        
         drawPaddle(); handleCollision(); ctx.restore();
         animationId = requestAnimationFrame(draw);
     }
@@ -706,5 +809,3 @@
 </script>
 </body>
 </html>
-
-
